@@ -1,0 +1,135 @@
+display = args.display
+phase = args.phase
+colours = np.random.rand(32, 3)
+
+if(display):
+    plt.ion()
+    fig = plt.figure()
+    ax1 = fig.add_subplot()
+
+# Creates an output dir to ...
+if not os.path.exists('output'):
+    os.makedirs('output')
+
+# pattern is the path to all det.txt detection files
+pattern = os.path.join(args.seq_path, phase, '*', 'det', 'det.txt')
+
+print(f"glob.glob(pattern) = {print(glob.glob(pattern))}")
+for seq_dets_fn in glob.glob(pattern): # takes all det.txt files one by one
+    print(f"seq_dets_fn = {seq_dets_fn}")
+    mot_tracker = Sort(max_age=args.max_age, 
+                       min_hits=args.min_hits,
+                       iou_threshold=args.iou_threshold) # creates instance of the SORT tracker
+    seq_dets = np.loadtxt(seq_dets_fn, delimiter=',')
+    print(f"seq_dets = {seq_dets}")
+    seq = seq_dets_fn[pattern.find('*'):].split(os.path.sep)[0]
+    print(f"seq = {seq}")
+
+    with open(os.path.join('output', '%s.txt'%(seq)),'w') as out_file:
+        print("Processing %s."%(seq))
+        
+        id_to_name_mapping = {}
+        
+        for frame in range(int(seq_dets[:, 0].min())-1, int(seq_dets[:, 0].max())): # modofied vrs
+            print(f"\n\u25A0 frame = {frame} (min = {int(seq_dets[:, 0].min())}, max = {int(seq_dets[:,0].max())})")
+            frame += 1 #detection and frame numbers begin at 1
+            print(f"  seq_dets[:, 0]==frame = {seq_dets[:, 0]==frame}")
+            dets = seq_dets[seq_dets[:, 0]==frame, 2:7]
+            # Will typically be of the form:
+            # dets = [[ 534.  196.   63.   77.    0.]
+            #         [ 271.  205.   44.   79.    0.]
+            #         [ 999.  308.   42.   43.    0.]
+            #         [1036.  208.   54.   74.    0.]]
+
+            print(f"  dets = {dets}")
+            dets[:, 2:4] += dets[:, 0:2] # convert initial [x1,y1,w,h] to [x1,y1,x2,y2]
+            print(f"  dets = {dets}")
+
+            if(display):
+                #fn = os.path.join('mot_benchmark', phase, seq, 'img1', '%06d.jpg'%(frame))
+                fn = os.path.join('season1/episode1', '%06d.jpg'%(frame))
+                print(f"    \u21FE fn = {fn}")
+                im = io.imread(fn)
+                ax1.imshow(im)
+                plt.title(seq + ' Tracked Targets')
+
+            start_time = time.time()
+            trackers = mot_tracker.update(dets)
+            print(f"  trackers = {trackers}")
+            cycle_time = time.time() - start_time
+
+
+            for d in trackers:
+                #print(f"d = {d}")
+                
+                if d[4] not in id_to_name_mapping.keys():
+                    #print(f"d[4] = {d[4]} not in mapping")
+                    
+                    
+                    import random
+                    def get_characters_from_crop(characters, im):
+                        return [random.choice(characters)]
+                    characters = ["Ross", "Monica", "Chandler", "Rachel", "Joey", "Pheobe", "Gunter", "Unknown"]
+                    new_detected_face = get_characters_from_crop(characters, im[int(d[1]):int(d[3]), int(d[0]):int(d[2])])
+                
+                    id_to_name_mapping[d[4]] = new_detected_face[0]
+                    
+                
+                    #print(f"d[4] = {d[4]} was not in id_to_name_mapping.keys()")
+                #print(f"       id_to_name_mapping = {id_to_name_mapping}")
+                #print(f"       id_to_name_mapping[d[4]] = {id_to_name_mapping[d[4]]}")
+                
+                    
+                if(display):
+                    #char_name = id_to_name_mapping[d[4]]
+                    #print(f"       char_name = {char_name}")
+                    d = d.astype(np.int32)
+                    ax1.add_patch(patches.Rectangle((d[0], d[1]),
+                                                    d[2]-d[0],
+                                                    d[3]-d[1],
+                                                    fill=False,
+                                                    lw=2,
+                                                    ec=colours[d[4]%32,:], 
+                                                    label='label'))
+                    
+                    ax1.text(d[0]-10, d[1]-10, f'{d[4]}={id_to_name_mapping[d[4]]}', color=colours[d[4]%32,:])
+                    
+
+            if not os.path.exists(f'det_and_track_results/{seq}'):
+                os.makedirs(f'det_and_track_results/{seq}')
+                
+            plt.savefig(f'det_and_track_results/{seq}/frame_{frame}.jpg', dpi=300, bbox_inches='tight')
+
+            if(display):
+                fig.canvas.flush_events()
+                plt.draw()
+                ax1.cla()
+
+    if(display):
+        print("Note: to get real runtime results run without the option: --display")
+
+
+all_images = glob.glob(f'det_and_track_results/{seq}/*.jpg')
+all_images.sort()
+
+img_array = []
+x, y, h, w, = 139, 143, 789, 1490
+
+for filename in all_images: 
+    print(filename)
+    img = cv2.imread(filename)
+    img = img[y:y+h, x:x+w]
+    height, width, layers = img.shape
+    size = (width,height)
+    img_array.append(img)
+    
+if not os.path.exists(f'final_videos/{seq}'):
+    os.makedirs(f'final_videos/{seq}')
+    
+out = cv2.VideoWriter(f'final_videos/video_{seq}.avi', cv2.VideoWriter_fourcc(*'DIVX'), 15, size)
+
+for i in range(len(img_array)):
+    out.write(img_array[i])
+out.release()
+
+
